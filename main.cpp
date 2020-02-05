@@ -44,12 +44,30 @@ void CalculateTranformation(CloudType::Ptr scan, Eigen::Matrix3d *rotation, Eige
 
 //    pcl::copyPointCloud(*known, *scan);
 //
-//    Eigen::Affine3f transform1 = Eigen::Affine3f::Identity();
+//    Eigen::Affine3d transform1 = Eigen::Affine3d::Identity();
 //    transform1.translation() << 0, 100, 0;
-//    float rotationDeg = 90;
-//    transform1.rotate(Eigen::AngleAxisf(rotationDeg * M_PI / 180, Eigen::Vector3f::UnitZ()));
-//
 //    pcl::transformPointCloud(*scan, *scan, transform1);
+//
+//    transform1 = Eigen::Affine3d::Identity();
+//    float rotationDeg = 90;
+//    transform1.rotate(Eigen::AngleAxisd(rotationDeg * M_PI / 180, Eigen::Vector3d::UnitZ()));
+//    pcl::transformPointCloud(*scan, *scan, transform1);
+
+
+
+//    pcl::copyPointCloud(*scan, *known);
+//
+//
+//    auto transform1 = Eigen::Affine3d::Identity();
+//    float rotationDeg = -90;
+//    transform1.rotate(Eigen::AngleAxisd(rotationDeg * M_PI / 180, Eigen::Vector3d::UnitZ()));
+//    pcl::transformPointCloud(*known, *known, transform1);
+//
+//    transform1 = Eigen::Affine3d::Identity();
+//    transform1.translation() << 0, -100, 0;
+//    pcl::transformPointCloud(*known, *known, transform1);
+
+
 
     Eigen::Matrix3d p;
     p(0, 0) = ((double)scan->points[1].x) - scan->points[0].x;
@@ -80,7 +98,7 @@ void CalculateTranformation(CloudType::Ptr scan, Eigen::Matrix3d *rotation, Eige
 
     cout << p << endl << endl << q << endl;
 
-    *rotation = p.inverse() * q;
+    *rotation = (p.inverse() * q).inverse();
 
     CloudType::Ptr transformedScan(new CloudType);
 
@@ -88,7 +106,7 @@ void CalculateTranformation(CloudType::Ptr scan, Eigen::Matrix3d *rotation, Eige
     transform.rotate(*rotation);
     pcl::transformPointCloud(*scan, *transformedScan, transform);
 
-    cout << "transform" << transform.matrix() << endl;
+    cout << "transform:" << endl << transform.matrix() << endl;
 
     *translation = (known->points[0].getVector3fMap() - transformedScan->points[0].getVector3fMap()).cast<double>();
 
@@ -153,7 +171,7 @@ CloudType::Ptr FindPeaks() {
     CloudType::Ptr input(new CloudType);
     CloudType::Ptr output(new CloudType);
 
-    pcl::io::loadPCDFile("./output/calibration sample/scan8.pcd", *input);
+    pcl::io::loadPCDFile("./output/calibration sample/scan10.pcd", *input);
 
     pcl::LocalMaximum<PointType> localMaximum;
     localMaximum.setInputCloud(input);
@@ -253,7 +271,7 @@ int main() {
     CalculateTranformation(ordered, &rotation, &translation);
 
     CloudType::Ptr input(new CloudType);
-    pcl::io::loadPCDFile("./output/calibration sample/scan8.pcd", *input);
+    pcl::io::loadPCDFile("./output/calibration sample/scan10.pcd", *input);
     // pcl::io::loadPCDFile("./output/box/1/scan2.pcd", *input);
 
     auto transform = Eigen::Affine3d::Identity();
