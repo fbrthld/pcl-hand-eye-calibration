@@ -2,6 +2,8 @@
 #include <thread>
 #include <chrono>
 
+#include <Eigen/Geometry>
+
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 #include <pcl/common/transforms.h>
@@ -11,14 +13,14 @@
 
 #include <pcl/filters/local_maximum.h>
 
+
+
 typedef pcl::PointXYZ PointType;
 typedef pcl::PointCloud<PointType> CloudType;
 
-
-
 using namespace std::chrono_literals;
 
-void CalculateTranformation(CloudType::Ptr scan, Eigen::Matrix3d *rotation, Eigen::Vector3d *translation) {
+void CalculateTranformation(CloudType::Ptr scan, Eigen::Matrix4f *transformation) {
 
     CloudType::Ptr known(new CloudType);
 
@@ -67,55 +69,61 @@ void CalculateTranformation(CloudType::Ptr scan, Eigen::Matrix3d *rotation, Eige
 //    transform1.translation() << 0, -100, 0;
 //    pcl::transformPointCloud(*known, *known, transform1);
 
+    Eigen::Matrix<float, 3, 4> umeyamaSrc;
+    umeyamaSrc(0, 0) = scan->points[0].x;
+    umeyamaSrc(1, 0) = scan->points[0].y;
+    umeyamaSrc(2, 0) = scan->points[0].z;
+
+    umeyamaSrc(0, 1) = scan->points[1].x;
+    umeyamaSrc(1, 1) = scan->points[1].y;
+    umeyamaSrc(2, 1) = scan->points[1].z;
+
+    umeyamaSrc(0, 2) = scan->points[2].x;
+    umeyamaSrc(1, 2) = scan->points[2].y;
+    umeyamaSrc(2, 2) = scan->points[2].z;
+
+    umeyamaSrc(0, 3) = scan->points[3].x;
+    umeyamaSrc(1, 3) = scan->points[3].y;
+    umeyamaSrc(2, 3) = scan->points[3].z;
+
+    Eigen::Matrix<float, 3, 4> umeyamaDest;
+    umeyamaDest(0, 0) = known->points[0].x;
+    umeyamaDest(1, 0) = known->points[0].y;
+    umeyamaDest(2, 0) = known->points[0].z;
+
+    umeyamaDest(0, 1) = known->points[1].x;
+    umeyamaDest(1, 1) = known->points[1].y;
+    umeyamaDest(2, 1) = known->points[1].z;
+
+    umeyamaDest(0, 2) = known->points[2].x;
+    umeyamaDest(1, 2) = known->points[2].y;
+    umeyamaDest(2, 2) = known->points[2].z;
+
+    umeyamaDest(0, 3) = known->points[3].x;
+    umeyamaDest(1, 3) = known->points[3].y;
+    umeyamaDest(2, 3) = known->points[3].z;
 
 
-    Eigen::Matrix3d p;
-    p(0, 0) = ((double)scan->points[1].x) - scan->points[0].x;
-    p(0, 1) = ((double)scan->points[1].y) - scan->points[0].y;
-    p(0, 2) = ((double)scan->points[1].z) - scan->points[0].z;
 
-    p(1, 0) = ((double)scan->points[2].x) - scan->points[0].x;
-    p(1, 1) = ((double)scan->points[2].y) - scan->points[0].y;
-    p(1, 2) = ((double)scan->points[2].z) - scan->points[0].z;
-
-    p(2, 0) = ((double)scan->points[3].x) - scan->points[0].x;
-    p(2, 1) = ((double)scan->points[3].y) - scan->points[0].y;
-    p(2, 2) = ((double)scan->points[3].z) - scan->points[0].z;
-
-
-    Eigen::Matrix3d q;
-    q(0, 0) = ((double)known->points[1].x) - known->points[0].x;
-    q(0, 1) = ((double)known->points[1].y) - known->points[0].y;
-    q(0, 2) = ((double)known->points[1].z) - known->points[0].z;
-
-    q(1, 0) = ((double)known->points[2].x) - known->points[0].x;
-    q(1, 1) = ((double)known->points[2].y) - known->points[0].y;
-    q(1, 2) = ((double)known->points[2].z) - known->points[0].z;
-
-    q(2, 0) = ((double)known->points[3].x) - known->points[0].x;
-    q(2, 1) = ((double)known->points[3].y) - known->points[0].y;
-    q(2, 2) = ((double)known->points[3].z) - known->points[0].z;
-
-    cout << p << endl << endl << q << endl;
-
-    *rotation = (p.inverse() * q).inverse();
+    *transformation = Eigen::umeyama(umeyamaSrc, umeyamaDest, true);
 
     CloudType::Ptr transformedScan(new CloudType);
 
-    auto transform = Eigen::Affine3d::Identity();
-    transform.rotate(*rotation);
-    pcl::transformPointCloud(*scan, *transformedScan, transform);
+    pcl::transformPointCloud(*scan, *transformedScan, *transformation);
+    #pragma omp critical
+    {
+    cout << "transform:" << endl << transformation->matrix() << endl;
+    cout << "errors: " << endl;
 
-    cout << "transform:" << endl << transform.matrix() << endl;
+    for (int j = 0; j < known->points.size(); ++j) {
+        auto difference = transformedScan->points[j].getVector3fMap() - known->points[j].getVector3fMap();
+        cout << "\tp" << j << ": (" << difference.norm() << " mm)" << endl;
+        // << difference << endl << endl;
+    }
 
-    *translation = (known->points[0].getVector3fMap() - transformedScan->points[0].getVector3fMap()).cast<double>();
-
-    transform = Eigen::Affine3d::Identity();
-    transform.translate(*translation);
-    pcl::transformPointCloud(*transformedScan, *transformedScan, transform);
-
-    cout << *rotation << endl << endl << *translation << endl;
-
+    cout << endl;
+    };
+/*
 //region Visualization
     pcl::visualization::PCLVisualizer::Ptr viewer(new pcl::visualization::PCLVisualizer("Viewer"));
 
@@ -165,13 +173,15 @@ void CalculateTranformation(CloudType::Ptr scan, Eigen::Matrix3d *rotation, Eige
         std::this_thread::sleep_for(100ms);
     }
 //endregion
+*/
+
 }
 
-CloudType::Ptr FindPeaks() {
+CloudType::Ptr FindPeaks(std::string inputCloudFile, int nPeaks) {
     CloudType::Ptr input(new CloudType);
     CloudType::Ptr output(new CloudType);
 
-    pcl::io::loadPCDFile("./output/calibration sample/scan10.pcd", *input);
+    pcl::io::loadPCDFile(inputCloudFile, *input);
 
     pcl::LocalMaximum<PointType> localMaximum;
     localMaximum.setInputCloud(input);
@@ -181,13 +191,13 @@ CloudType::Ptr FindPeaks() {
     localMaximum.filter(*output);
 
 
-    std::cout << output->points.size() << " local maxima" << std::endl;
+    // std::cout << output->points.size() << " local maxima" << std::endl;
 
     std::vector<PointType> peaks;
-    peaks.emplace_back(output->points[0]);
-    peaks.emplace_back(output->points[1]);
-    peaks.emplace_back(output->points[2]);
-    peaks.emplace_back(output->points[3]);
+    for (int l = 0; l < nPeaks; ++l) {
+        peaks.emplace_back(output->points[l]);
+    }
+
 
     int peaksMinimumIndex = 0;
 
@@ -208,11 +218,11 @@ CloudType::Ptr FindPeaks() {
     }
 
     output->points.clear();
-    output->points.emplace_back(peaks[0]);
-    output->points.emplace_back(peaks[1]);
-    output->points.emplace_back(peaks[2]);
-    output->points.emplace_back(peaks[3]);
+    for (int m = 0; m < nPeaks; ++m) {
+        output->points.emplace_back(peaks[m]);
+    }
 
+/*
 //region Visualization
     pcl::visualization::PCLVisualizer::Ptr viewer(new pcl::visualization::PCLVisualizer("Viewer"));
 
@@ -236,42 +246,61 @@ CloudType::Ptr FindPeaks() {
         std::this_thread::sleep_for(100ms);
     }
 //endregion
+ */
 
     return output;
 }
 
 int main() {
-    auto peakCloud = FindPeaks();
 
-    CloudType::Ptr ordered(new CloudType);
-    int peakSize = peakCloud->points.size();
-    for (int j = 0; j < peakSize; ++j) { // have to search in Y direction in scan, because the pcl is built up in y direction
-        int smallestYIndex = 0;
-        for (int k = 1; k < peakCloud->points.size(); ++k) {
-            if(peakCloud->points[k].y < peakCloud->points[smallestYIndex].y) {
-                smallestYIndex = k;
+    std::vector<CloudType::Ptr> peakClouds(10);
+
+    #pragma omp parallel for default(none) shared(peakClouds)
+    for (int j = 0; j < 10; ++j) {
+        std::ostringstream sstream;
+        sstream << "/home/fberthold/Documents/scans/scan" << j << ".pcd";
+
+        auto currentPeaks = FindPeaks(sstream.str(), 4);
+
+        peakClouds[j] = CloudType::Ptr(new CloudType);
+
+        int nPeaks = currentPeaks->points.size();
+
+        for (int k = 0; k < nPeaks; ++k) {
+            int smallestYIndex = 0;
+            for (int l = 1; l < currentPeaks->points.size(); ++l) {
+                if(currentPeaks->points[l].y < currentPeaks->points[smallestYIndex].y) { // have to search in Y direction in scan, because the pcl is built up in y direction
+                    smallestYIndex = l;
+                }
             }
+            peakClouds[j]->points.emplace_back(currentPeaks->points[smallestYIndex]);
+            currentPeaks->points.erase(currentPeaks->points.begin() + smallestYIndex);
         }
-        ordered->points.emplace_back(peakCloud->points[smallestYIndex]);
-        peakCloud->points.erase(peakCloud->points.begin() + smallestYIndex);
-
-//        int largestYIndex = 0;
-//        for (int k = 1; k < peakCloud->points.size(); ++k) {
-//            if(peakCloud->points[k].y > peakCloud->points[largestYIndex].y) {
-//                largestYIndex = k;
-//            }
-//        }
-//        ordered->points.emplace_back(peakCloud->points[largestYIndex]);
-//        peakCloud->points.erase(peakCloud->points.begin() + largestYIndex);
     }
 
-    Eigen::Matrix3d rotation;
-    Eigen::Vector3d translation;
+    CloudType::Ptr averagePeaks(new CloudType);
 
-    CalculateTranformation(ordered, &rotation, &translation);
+    for (int j = 0; j < 4; ++j) {
+        const int nClouds = 10;
 
+        auto meanPoint = peakClouds[0]->points[j].getVector3fMap();
+        for (int k = 1; k < nClouds; ++k) {
+            meanPoint += peakClouds[k]->points[j].getVector3fMap();
+        }
+
+        meanPoint /= nClouds;
+
+        averagePeaks->points.emplace_back(PointType(meanPoint.x(), meanPoint.y(), meanPoint.z()));
+
+    }
+
+    Eigen::Matrix4f transformation;
+
+    CalculateTranformation(averagePeaks, &transformation);
+
+/*
     CloudType::Ptr input(new CloudType);
-    pcl::io::loadPCDFile("./output/calibration sample/scan10.pcd", *input);
+    pcl::io::loadPCDFile(SCAN_FILE, *input);
     // pcl::io::loadPCDFile("./output/box/1/scan2.pcd", *input);
 
     auto transform = Eigen::Affine3d::Identity();
@@ -335,6 +364,6 @@ int main() {
     }
 //endregion
 
-    return 0;
+    return 0;*/
 }
 
